@@ -131,10 +131,10 @@ namespace ER
             CreateHook(54, (void**)&oExecuteCommandLists, HookExecuteCommandLists);
             Logger::log("Hooking Present");
             CreateHook(140, (void**)&oPresent, HookPresent);
-            Logger::log("Hooking ResizeTarget");
-            CreateHook(146, (void**)&oResizeTarget, HookResizeTarget);
-            // The game rebuilds its back buffers with ResizeBuffers(1) on alt-tab out of
-            // exclusive fullscreen; DX12 fails that while we still hold buffer references.
+            // ResizeBuffers(1) is what invalidates the back buffers (alt-tab out of exclusive
+            // fullscreen, resolution changes), so release our render state there. No ResizeTarget
+            // hook: it only resizes the window, and under NVIDIA Streamline its code is folded with
+            // unrelated functions, so hooking it breaks them (upstream PR #19).
             Logger::log("Hooking ResizeBuffers");
             if (!CreateHook(145, (void**)&oResizeBuffers, HookResizeBuffers))
                 Logger::log("Failed to hook ResizeBuffers", LogLevel::Error);
@@ -790,15 +790,6 @@ namespace ER
         return CallWindowProc((WNDPROC)g_D3DRenderer->m_OldWndProc, hWnd, msg, wParam, lParam);
     }
 
-    HRESULT APIENTRY D3DRenderer::HookResizeTarget(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters)
-    {
-        Logger::log("Enter HookResizeTarget", LogLevel::Debug);
-
-        if (g_D3DRenderer->m_Init)
-            g_D3DRenderer->ResetRenderState();
-
-        return g_D3DRenderer->oResizeTarget(_this, pNewTargetParameters);
-    }
 
     HRESULT APIENTRY D3DRenderer::HookResizeBuffers(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags)
     {
@@ -945,9 +936,11 @@ namespace ER
 
     void D3DRenderer::DisableAll() 
     {
-        DisableHook(MethodsTable[54]);
-        DisableHook(MethodsTable[140]);
-        DisableHook(MethodsTable[146]);
+        DisableHook(54);
+        DisableHook(140);
+        DisableHook(145);
+        if (MethodsTable[150])
+            DisableHook(150);
     }
 
     D3DRenderer::~D3DRenderer() noexcept
