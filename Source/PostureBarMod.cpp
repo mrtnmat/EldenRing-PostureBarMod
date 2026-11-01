@@ -231,6 +231,15 @@ bool loadIni()
         return false;
     }
 
+    // Dump the settings once; later reloads (Enter) would repeat ~50 lines each time.
+    static bool settingsLogged = false;
+    if (settingsLogged)
+    {
+        Logger::log("Reloaded ini settings");
+        return true;
+    }
+    settingsLogged = true;
+
     Logger::log("Dll path: " + dllPath);
     Logger::log("Loaded ini settings: ");
     Logger::log("\tGeneral:");
