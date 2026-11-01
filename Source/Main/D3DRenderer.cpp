@@ -133,6 +133,17 @@ namespace ER
             CreateHook(140, (void**)&oPresent, HookPresent);
             Logger::log("Hooking ResizeTarget");
             CreateHook(146, (void**)&oResizeTarget, HookResizeTarget);
+            // The game rebuilds its back buffers with ResizeBuffers(1) on alt-tab out of
+            // exclusive fullscreen; DX12 fails that while we still hold buffer references.
+            Logger::log("Hooking ResizeBuffers");
+            if (!CreateHook(145, (void**)&oResizeBuffers, HookResizeBuffers))
+                Logger::log("Failed to hook ResizeBuffers", LogLevel::Error);
+            if (MethodsTable[150])
+            {
+                Logger::log("Hooking ResizeBuffers1");
+                if (!CreateHook(150, (void**)&oResizeBuffers1, HookResizeBuffers1))
+                    Logger::log("Failed to hook ResizeBuffers1", LogLevel::Error);
+            }
             return 1;
         }
 
@@ -300,12 +311,20 @@ namespace ER
         }
 
         Logger::log("Allock D3DWindow method tables");
-        MethodsTable = (uint64_t*)::calloc(150, sizeof(uint64_t));
+        MethodsTable = (uint64_t*)::calloc(151, sizeof(uint64_t));
         memcpy(MethodsTable, *(uint64_t**)Device, 44 * sizeof(uint64_t));
         memcpy(MethodsTable + 44, *(uint64_t**)CommandQueue, 19 * sizeof(uint64_t));
         memcpy(MethodsTable + 44 + 19, *(uint64_t**)CommandAllocator, 9 * sizeof(uint64_t));
         memcpy(MethodsTable + 44 + 19 + 9, *(uint64_t**)CommandList, 60 * sizeof(uint64_t));
         memcpy(MethodsTable + 44 + 19 + 9 + 60, *(uint64_t**)SwapChain, 18 * sizeof(uint64_t));
+
+        // IDXGISwapChain3::ResizeBuffers1 (vtable index 39) is outside the 18 entries above.
+        IDXGISwapChain3* SwapChain3 = nullptr;
+        if (SwapChain->QueryInterface(IID_PPV_ARGS(&SwapChain3)) == S_OK && SwapChain3)
+        {
+            MethodsTable[150] = (*(uint64_t**)SwapChain3)[39];
+            SwapChain3->Release();
+        }
         Sleep(1000);
 
         MH_Initialize();
@@ -768,6 +787,33 @@ namespace ER
         return g_D3DRenderer->oResizeTarget(_this, pNewTargetParameters);
     }
 
+    HRESULT APIENTRY D3DRenderer::HookResizeBuffers(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags)
+    {
+        Logger::log("Enter HookResizeBuffers", LogLevel::Debug);
+
+        // Release our back buffer references first; Overlay() re-inits on the next Present.
+        if (g_D3DRenderer->m_Init)
+            g_D3DRenderer->ResetRenderState();
+
+        HRESULT hr = g_D3DRenderer->oResizeBuffers(_this, BufferCount, Width, Height, NewFormat, SwapChainFlags);
+        if (FAILED(hr))
+            Logger::log("ResizeBuffers failed: " + std::to_string((long)hr), LogLevel::Warning);
+        return hr;
+    }
+
+    HRESULT APIENTRY D3DRenderer::HookResizeBuffers1(IDXGISwapChain3* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT Format, UINT SwapChainFlags, const UINT* pCreationNodeMask, IUnknown* const* ppPresentQueue)
+    {
+        Logger::log("Enter HookResizeBuffers1", LogLevel::Debug);
+
+        if (g_D3DRenderer->m_Init)
+            g_D3DRenderer->ResetRenderState();
+
+        HRESULT hr = g_D3DRenderer->oResizeBuffers1(_this, BufferCount, Width, Height, Format, SwapChainFlags, pCreationNodeMask, ppPresentQueue);
+        if (FAILED(hr))
+            Logger::log("ResizeBuffers1 failed: " + std::to_string((long)hr), LogLevel::Warning);
+        return hr;
+    }
+
     HRESULT APIENTRY D3DRenderer::HookPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags)
     {
         Logger::log("Enter HookPresent", LogLevel::Debug);
@@ -824,6 +870,13 @@ namespace ER
         SetWindowLongPtr(programData->m_GameWindow, GWLP_WNDPROC, (LONG_PTR)m_OldWndProc);
         ImGui_ImplWin32_Shutdown();
         ImGui::DestroyContext();
+
+        m_Device = nullptr;
+        m_CommandList = nullptr;
+        m_srvDescriptorHeap = nullptr;
+        m_rtvDescriptorHeap = nullptr;
+        m_CommandAllocators = nullptr;
+        m_BackBuffers = nullptr;
 
         g_postureUI->textureBarInit = false;
         m_Init = false;

@@ -58,6 +58,12 @@ namespace ER
         typedef HRESULT(APIENTRY* ResizeTarget)(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters);
         ResizeTarget oResizeTarget = NULL;
 
+        typedef HRESULT(APIENTRY* ResizeBuffers)(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags);
+        ResizeBuffers oResizeBuffers = NULL;
+
+        typedef HRESULT(APIENTRY* ResizeBuffers1)(IDXGISwapChain3* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT Format, UINT SwapChainFlags, const UINT* pCreationNodeMask, IUnknown* const* ppPresentQueue);
+        ResizeBuffers1 oResizeBuffers1 = NULL;
+
     public:
         explicit D3DRenderer()
             : programData(std::make_unique<ProgramData>()) {};
@@ -75,6 +81,8 @@ namespace ER
         static HRESULT APIENTRY HookPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags);
         static void HookExecuteCommandLists(ID3D12CommandQueue* queue, UINT NumCommandLists, ID3D12CommandList* ppCommandLists);
         static HRESULT APIENTRY HookResizeTarget(IDXGISwapChain* _this, const DXGI_MODE_DESC* pNewTargetParameters);
+        static HRESULT APIENTRY HookResizeBuffers(IDXGISwapChain* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags);
+        static HRESULT APIENTRY HookResizeBuffers1(IDXGISwapChain3* _this, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT Format, UINT SwapChainFlags, const UINT* pCreationNodeMask, IUnknown* const* ppPresentQueue);
         void ResetRenderState(IDXGISwapChain3* swapChain = nullptr);
 
         bool loadTextureFileData(const std::string& filename, TextureFileData* textureFileData);
