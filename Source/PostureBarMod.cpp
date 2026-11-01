@@ -424,6 +424,26 @@ bool findDllPath()
     return true;
 }
 
+// Hotkeys are polled with GetAsyncKeyState, which sees keys pressed in any program.
+// Only act while a window of this process (the game) is in the foreground.
+static bool gameHasFocus()
+{
+    DWORD pid = 0;
+    GetWindowThreadProcessId(GetForegroundWindow(), &pid);
+    return pid == GetCurrentProcessId();
+}
+
+// True once per press (up -> down transition), not on every poll while the key is held.
+// Call it every loop pass, focused or not, so the stored state stays current.
+static bool keyPressed(int vk)
+{
+    static bool wasDown[256]{};
+    const bool isDown = (GetAsyncKeyState(vk) & 0x8000) != 0;
+    const bool pressed = isDown && !wasDown[vk];
+    wasDown[vk] = isDown;
+    return pressed;
+}
+
 void MainThread()
 {
     if (!findDllPath())
@@ -445,9 +465,13 @@ void MainThread()
     int counter = 0;
     while (g_Running)
     {
+        const bool focused = gameHasFocus();
+
         if (offsetTesting)
         {
             std::pair<float, float> moveVec{ float((GetAsyncKeyState(VK_RIGHT) & 1) - (GetAsyncKeyState(VK_LEFT) & 1)), float((GetAsyncKeyState(VK_DOWN) & 1) - (GetAsyncKeyState(VK_UP) & 1)) };
+            if (!focused)
+                moveVec = { 0.f, 0.f };
 
             if (counter <= 0)
                 offsetSpeed = 0.5f;
@@ -481,13 +505,13 @@ void MainThread()
                     break;
             }
 
-            if (GetAsyncKeyState(VK_INSERT) & 1)
+            if (keyPressed(VK_INSERT) && focused)
                 saveTestOffsetToIni();
 
-            if (GetAsyncKeyState(VK_NEXT) & 1)
+            if (keyPressed(VK_NEXT) && focused)
                 debugState = cycleState(debugState, 1);
 
-            if (GetAsyncKeyState(VK_PRIOR) & 1)
+            if (keyPressed(VK_PRIOR) && focused)
                 debugState = cycleState(debugState, -1);
 
             if (moveVec.first != 0.f || moveVec.second != 0.f)
@@ -495,7 +519,7 @@ void MainThread()
         }
 
         // reload ini settings for colors and bar toggles
-        if (GetAsyncKeyState(VK_RETURN)) {
+        if (keyPressed(VK_RETURN) && focused) {
             loadIni();
         }
 
