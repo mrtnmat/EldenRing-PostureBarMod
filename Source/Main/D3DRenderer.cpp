@@ -669,6 +669,10 @@ namespace ER
             {
                 pSwapChain3->GetBuffer(i, IID_PPV_ARGS(&m_BackBuffers[i]));
                 pDevice->CreateRenderTargetView(m_BackBuffers[i], NULL, m_RenderTargets[i]);
+                // Don't keep the reference: holding swap chain buffers between frames keeps the swap
+                // chain alive after the game releases it (black fullscreen hang on quit).
+                m_BackBuffers[i]->Release();
+                m_BackBuffers[i] = nullptr;
             }
 
             Logger::log("ImGui CreateContext");
@@ -723,10 +727,18 @@ namespace ER
         UINT bufferIndex = pSwapChain3->GetCurrentBackBufferIndex();
         Logger::log("ImGui swap chain buffer index: " + std::to_string(bufferIndex), LogLevel::Debug);
 
+        ID3D12Resource* backBuffer = nullptr;
+        if (pSwapChain3->GetBuffer(bufferIndex, IID_PPV_ARGS(&backBuffer)) != S_OK || !backBuffer)
+        {
+            Logger::log("Failed to get swap chain buffer " + std::to_string(bufferIndex), LogLevel::Debug);
+            pSwapChain3->Release();
+            return;
+        }
+
         D3D12_RESOURCE_BARRIER barrier = {};
         barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
         barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-        barrier.Transition.pResource = m_BackBuffers[bufferIndex];
+        barrier.Transition.pResource = backBuffer;
         barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
         barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
         barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
@@ -748,6 +760,7 @@ namespace ER
 
         Logger::log("ID3D12CommandList execute command list", LogLevel::Debug);
         pCmdQueue->ExecuteCommandLists(1, (ID3D12CommandList**)&m_CommandList);
+        backBuffer->Release();
 
         Logger::log("IDXGISwapChain3 release", LogLevel::Debug);
         pSwapChain3->Release();
@@ -859,7 +872,8 @@ namespace ER
         for (IndexType i = 0; i < m_BuffersCounts; i++)
         {
             m_CommandAllocators[i]->Release();
-            m_BackBuffers[i]->Release();
+            if (m_BackBuffers[i])
+                m_BackBuffers[i]->Release();
         }
 
         m_RenderTargets.clear();
