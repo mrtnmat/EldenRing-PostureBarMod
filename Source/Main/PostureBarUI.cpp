@@ -31,6 +31,11 @@ namespace ER
 
     void PostureBarUI::Draw()
     {
+        // A minimized window (alt-tab out of exclusive fullscreen) has a 0x0 viewport. Skip the frame,
+        // otherwise the auto scaling below latches a scale of 0 and every bar stays invisible.
+        if (auto viewport = ImGui::GetMainViewport()->Size; viewport.x <= 0.f || viewport.y <= 0.f)
+            return;
+
         if (ScreenParams::autoGameToViewportScaling || ScreenParams::autoPositionSetup)
         {
             auto viewportSize = ImGui::GetMainViewport()->Size;
