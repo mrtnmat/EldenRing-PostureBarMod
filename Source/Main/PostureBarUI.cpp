@@ -419,15 +419,33 @@ namespace ER
         ImGui::GetBackgroundDrawList()->AddConvexPolyFilled(circlePoints.Data, circlePoints.Size, color);
     }
 
+    // CSMenuMan, found by class name (Hooking::findMenuMan). Read from probes of eldenring.exe
+    // 2.7.0.0 (2026-11-01): +0x1C holds one flag per open menu (pause 0x10, system 0x8000,
+    // map 0x100, site of grace 0x80004, NPC talk 0x20) and is 0 in free play; +0x730 is nonzero
+    // while a loading screen is up (1) and on the title screen (0x100). Bars hide while loading and
+    // while flag 0x80000 is set (death revival popup, site of grace; probe 2026-11-01): the game keeps
+    // its own boss bar up under the pause menu, and map/NPC menus can't open in combat.
     bool PostureBarUI::isMenuOpen()
     {
         if (!hideBarsOnMenu)
             return false;
 
-        auto isLoad = RPM<bool>(g_Hooking->isLoading);
-        auto menuOpen = (RPM<uint32_t>(g_Hooking->menuState1) != __UINT32_MAX__ || RPM<uint32_t>(g_Hooking->menuState2) != __UINT32_MAX__ || RPM<uint32_t>(g_Hooking->menuState3) != __UINT32_MAX__);
+        // The game's class names are only readable once its reflection data is set up; retry a while.
+        static ULONGLONG lastTry = GetTickCount64();
+        static int tries = 0;
+        if (!g_Hooking->csMenuManStatic && tries < 30 && GetTickCount64() - lastTry > 5000)
+        {
+            lastTry = GetTickCount64();
+            ++tries;
+            g_Hooking->findMenuMan();
+        }
+        if (!g_Hooking->csMenuManStatic)
+            return false;
 
-        return isLoad || menuOpen;
+        auto menuMan = RPM<uintptr_t>(g_Hooking->csMenuManStatic);
+        if (!menuMan)
+            return false;
+        return RPM<uint32_t>(menuMan + 0x730) != 0 || (RPM<uint32_t>(menuMan + 0x1C) & 0x80000) != 0;
     }
 
     void PostureBarUI::updateUIBarStructs(uintptr_t moveMapStep, uintptr_t time)
